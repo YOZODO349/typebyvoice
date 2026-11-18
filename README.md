@@ -4,6 +4,10 @@
 
 > Type with your phone's voice keyboard. The phone does the listening, the PC does the typing — over a LAN link that stays up.
 
+<p align="center">
+  <img src="docs/phone.png" alt="手机端页面" width="320">
+</p>
+
 ---
 
 ## 这是解决什么问题的
