@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0e1116">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>TypeByVoice</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+  :root{
+    --bg:#0e1116; --panel:#161b23; --line:#252c38; --text:#e9edf4;
+    --muted:#8b95a7; --accent:#35c2a0; --accent-dim:#1d6f5d; --warn:#e0a33e;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;height:100%;overscroll-behavior:none;}
+  body{
+    background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei UI","Microsoft YaHei",system-ui,sans-serif;
+    display:flex; flex-direction:column; height:100dvh;
+    padding-left:env(safe-area-inset-left); padding-right:env(safe-area-inset-right);
+  }
+  header{
+    display:flex; align-items:center; gap:8px;
+    padding:calc(env(safe-area-inset-top) + 10px) 14px 10px;
+    border-bottom:1px solid var(--line); background:var(--panel);
+    flex:0 0 auto;
+  }
+  .dot{width:9px;height:9px;border-radius:50%;background:#c0392b;flex:0 0 auto;box-shadow:0 0 8px rgba(0,0,0,.4);}
+  .dot.on{background:var(--accent);box-shadow:0 0 10px rgba(53,194,160,.7);}
+  .dot.wait{background:var(--warn);}
+  #state{font-size:14px;font-weight:600;letter-spacing:.2px;}
+  #target{font-size:12px;color:var(--muted);padding:6px 14px 0;flex:0 0 auto;letter-spacing:.2px;}
+  #badge{margin-left:auto;font-size:12px;color:var(--muted);}
+  main{flex:1 1 auto; display:flex; flex-direction:column; min-height:0; padding:10px 12px 0;}
+  #ta{
+    flex:1 1 auto; width:100%; resize:none; border:1px solid var(--line); border-radius:14px;
+    background:#121722; color:var(--text); padding:14px;
+    font-size:20px; line-height:1.55; outline:none;
+    font-family:inherit; min-height:120px;
+  }
+  #ta:focus{border-color:var(--accent-dim); box-shadow:0 0 0 2px rgba(53,194,160,.12);}
+  #hint{font-size:12px;color:var(--muted); padding:8px 2px 0; min-height:18px;}
+  footer{
+    flex:0 0 auto; padding:8px 12px calc(env(safe-area-inset-bottom) + 10px);
+    display:flex; flex-direction:column; gap:8px;
+  }
+  .row{display:flex; gap:8px;}
+  button{
+    font-family:inherit; border:none; border-radius:12px; font-size:16px; font-weight:600;
+    padding:0 16px; height:52px; color:var(--text); background:#1e2531; touch-action:manipulation;
+  }
+  button:active{transform:scale(.985);}
+  #send{flex:1 1 auto; background:linear-gradient(180deg,#33bf9e,#239c80); color:#04110d;}
+  .ghost{flex:0 0 auto; min-width:76px; color:var(--muted); font-weight:500;}
+  .opts{display:flex; align-items:center; gap:14px; font-size:13px; color:var(--muted); padding:0 2px;}
+  .opts label{display:flex; align-items:center; gap:6px;}
+  input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);}
+  #last{font-size:12px;color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #toast{
+    position:fixed; left:50%; top:calc(env(safe-area-inset-top) + 58px); transform:translate(-50%,-8px);
+    background:rgba(30,37,49,.96); border:1px solid var(--line); color:var(--text);
+    padding:8px 14px; border-radius:10px; font-size:13px; opacity:0; pointer-events:none;
+    transition:opacity .18s ease, transform .18s ease; max-width:86vw; text-align:center;
+  }
+  #toast.show{opacity:1; transform:translate(-50%,0);}
+  #fatal{padding:18px; font-size:15px; line-height:1.7; color:var(--warn); display:none;}
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="dot"></span>
+  <span id="state">连接中…</span>
+  <span id="badge"></span>
+</header>
+<div id="target">文字会打进这台电脑</div>
+
+<main>
+  <textarea id="ta" placeholder="在这里说话——点一下输入框，用手机输入法的语音键。&#10;停顿约 1 秒会自动发送到电脑。" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"></textarea>
+  <div id="hint">说一句、停一下，电脑那边就会出字。</div>
+  <div id="fatal"></div>
+</main>
+
+<footer>
+  <div id="last"></div>
+  <div class="row">
+    <button id="send">发送</button>
+    <button id="nl" class="ghost">换行</button>
+    <button id="clr" class="ghost">清空</button>
+  </div>
+  <div class="opts">
+    <label><input type="checkbox" id="auto" checked>停顿自动发送</label>
+    <label><input type="checkbox" id="wake">屏幕常亮</label>
+    <span id="qbadge" style="margin-left:auto"></span>
+  </div>
+</footer>
+
+<div id="toast"></div>
+
+<script>
+(function () {
+  'use strict';
+  var ta = document.getElementById('ta');
+  var dot = document.getElementById('dot');
+  var stateEl = document.getElementById('state');
+  var badge = document.getElementById('badge');
+  var qbadge = document.getElementById('qbadge');
+  var lastEl = document.getElementById('last');
+  var toastEl = document.getElementById('toast');
+  var autoEl = document.getElementById('auto');
+  var wakeEl = document.getElementById('wake');
+  var fatal = document.getElementById('fatal');
+
+  var params = new URLSearchParams(location.search);
+  var token = params.get('k') || localStorage.getItem('xnfb.token') || '';
+  if (params.get('k')) localStorage.setItem('xnfb.token', token);
+
+  if (!token) {
+    fatal.style.display = 'block';
+    fatal.textContent = '缺少访问令牌。请扫描电脑上“TypeByVoice”面板里的二维码，或复制完整地址打开。';
+  }
+
+  var IDLE_MS = 1200;
+  var ws = null, retry = 0, reTimer = null, hbTimer = null, lastMsg = 0;
+  var composing = false, sendTimer = null, lastSent = '', lastSentAt = 0;
+  var queue = [];
+  var paused = false;
+
+  try { queue = JSON.parse(localStorage.getItem('xnfb.q') || '[]') || []; } catch (e) { queue = []; }
+  autoEl.checked = localStorage.getItem('xnfb.auto') !== '0';
+  wakeEl.checked = localStorage.getItem('xnfb.wake') === '1';
+
+  function saveQueue() {
+    try { localStorage.setItem('xnfb.q', JSON.stringify(queue.slice(-50))); } catch (e) {}
+  }
+  function toast(msg) {
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(function () { toastEl.classList.remove('show'); }, 1600);
+  }
+  function deviceName() {
+    var ua = navigator.userAgent;
+    var m = ua.match(/\(([^)]+)\)/);
+    return (m ? m[1] : 'phone').split(';').slice(0, 2).join(';').slice(0, 38);
+  }
+  function setState(kind, text) {
+    dot.className = 'dot' + (kind === 'on' ? ' on' : kind === 'wait' ? ' wait' : '');
+    stateEl.textContent = text;
+  }
+  function updateBadge() {
+    var n = queue.length;
+    qbadge.textContent = n ? ('待发 ' + n + ' 条') : '';
+    badge.textContent = paused ? '电脑端已暂停' : '';
+  }
+
+  // 家里可能有两台电脑都跑着桥，页面上必须写清"现在连的是哪台"，
+  // 否则容易以为在给 A 说，其实连的是 B。
+  var hostName = '';
+  var targetEl = document.getElementById('target');
+  function refreshHost() {
+    fetch('health?t=' + Date.now(), { cache: 'no-store' }).then(function (r) {
+      return r.json();
+    }).then(function (d) {
+      if (d && d.host) {
+        hostName = d.host;
+        if (ws && ws.readyState === 1) setState('on', '已连接 · ' + hostName);
+        if (targetEl) {
+          targetEl.textContent = '文字会打进：' + hostName + '（' + location.host.split(':')[0] + '）';
+        }
+      }
+    }).catch(function () {});
+  }
+  function connect() {
+    if (!token) return;
+    if (ws && (ws.readyState === 0 || ws.readyState === 1)) return;
+    clearTimeout(reTimer);
+    var proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
+    setState('wait', '连接中…');
+    try {
+      ws = new WebSocket(proto + location.host + '/ws?k=' + encodeURIComponent(token));
+    } catch (e) {
+      scheduleReconnect();
+      return;
+    }
+    ws.onopen = function () {
+      retry = 0; lastMsg = Date.now();
+      setState('on', hostName ? '已连接 · ' + hostName : '已连接');
+      send({ t: 'hello', device: deviceName() });
+      flush();
+      startHeartbeat();
+      refreshHost();
+    };
+    ws.onmessage = function (ev) {
+      lastMsg = Date.now();
+      var m;
+      try { m = JSON.parse(ev.data); } catch (e) { return; }
+      onMessage(m);
+    };
+    ws.onclose = function () {
+      ws = null;
+      stopHeartbeat();
+      setState('', '未连接，重试中…');
+      scheduleReconnect();
+    };
+    ws.onerror = function () {};
+  }
+
+  function scheduleReconnect() {
+    clearTimeout(reTimer);
+    var delay = Math.min(500 * Math.pow(1.7, retry++), 6000);
+    reTimer = setTimeout(connect, delay);
+  }
+
+  function startHeartbeat() {
+    stopHeartbeat();
+    hbTimer = setInterval(function () {
+      if (!ws || ws.readyState !== 1) return;
+      if (Date.now() - lastMsg > 45000) { try { ws.close(); } catch (e) {} return; }
+      send({ t: 'ping' });
+      flush();
+    }, 15000);
+  }
+  function stopHeartbeat() { clearInterval(hbTimer); hbTimer = null; }
+
+  function send(obj) {
+    if (!ws || ws.readyState !== 1) return false;
+    try { ws.send(JSON.stringify(obj)); return true; } catch (e) { return false; }
+  }
+
+  function onMessage(m) {
+    if (m.t === 'hello' || m.t === 'status') {
+      paused = !!m.paused;
+      updateBadge();
+      return;
+    }
+    if (m.t === 'ack' || m.t === 'done') {
+      var id = m.id;
+      queue = queue.filter(function (it) { return it.id !== id; });
+      saveQueue();
+      updateBadge();
+      if (m.t === 'done' && m.ok === false) toast('电脑端注入失败，试试兼容模式');
+      return;
+    }
+    if (m.t === 'undo') { toast('电脑端已撤销'); return; }
+    if (m.t === 'pong') return;
+  }
+
+  function enqueue(text) {
+    var id = Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+    queue.push({ id: id, text: text, ts: Date.now() });
+    saveQueue();
+    updateBadge();
+    flush();
+  }
+
+  function flush() {
+    if (!ws || ws.readyState !== 1) return;
+    var now = Date.now();
+    for (var i = 0; i < queue.length; i++) {
+      var it = queue[i];
+      if (it.sentAt && now - it.sentAt < 4000) continue;
+      it.sentAt = now;
+      send({ t: 'seg', id: it.id, text: it.text });
+    }
+    saveQueue();
+  }
+  setInterval(flush, 4000);
+
+  function commit(force) {
+    clearTimeout(sendTimer);
+    if (composing && !force) { sendTimer = setTimeout(commit, 400); return; }
+    var raw = ta.value.replace(/\s+$/, '');
+    if (!raw.trim()) return;
+    if (raw === lastSent && Date.now() - lastSentAt < 8000) { ta.value = ''; return; }
+    lastSent = raw; lastSentAt = Date.now();
+    enqueue(raw);
+    ta.value = '';
+    lastEl.textContent = '上一条：' + (raw.length > 42 ? raw.slice(0, 42) + '…' : raw);
+    toast('已发送 ' + raw.length + ' 字');
+    if (autoEl.checked) { try { ta.focus(); } catch (e) {} }
+  }
+
+  function schedule(ms) {
+    clearTimeout(sendTimer);
+    sendTimer = setTimeout(commit, ms);
+  }
+
+  ta.addEventListener('compositionstart', function () {
+    composing = true; clearTimeout(sendTimer);
+  });
+  ta.addEventListener('compositionend', function () {
+    composing = false;
+    if (autoEl.checked) schedule(500);
+  });
+  ta.addEventListener('input', function () {
+    if (composing) return;
+    if (autoEl.checked) schedule(IDLE_MS);
+  });
+
+  document.getElementById('send').addEventListener('click', function () { commit(true); });
+  document.getElementById('nl').addEventListener('click', function () {
+    var had = ta.value.trim();
+    if (had) commit(true);
+    enqueue('\n');
+  });
+  document.getElementById('clr').addEventListener('click', function () {
+    ta.value = ''; ta.focus();
+  });
+
+  autoEl.addEventListener('change', function () {
+    localStorage.setItem('xnfb.auto', autoEl.checked ? '1' : '0');
+  });
+
+  // 屏幕常亮
+  var wakeLock = null;
+  function applyWakeLock() {
+    if (!('wakeLock' in navigator)) {
+      if (wakeEl.checked) { wakeEl.checked = false; toast('此浏览器不支持屏幕常亮'); }
+      return;
+    }
+    if (wakeEl.checked && !wakeLock) {
+      navigator.wakeLock.request('screen').then(function (l) { wakeLock = l; })
+        .catch(function () {});
+    } else if (!wakeEl.checked && wakeLock) {
+      try { wakeLock.release(); } catch (e) {}
+      wakeLock = null;
+    }
+  }
+  wakeEl.addEventListener('change', function () {
+    localStorage.setItem('xnfb.wake', wakeEl.checked ? '1' : '0');
+    applyWakeLock();
+  });
+
+  // 回到前台 / 网络恢复时，除了"没连"要重连，还要处理"看着已连、其实已死"的僵死连接：
+  // 手机休眠时 WebSocket 常常既不发 close 也不发 error，只能靠 20 秒没收到任何消息来判断。
+  function reviveSocket() {
+    var stale = Date.now() - lastMsg > 20000;
+    if (ws && stale) {
+      try { ws.close(); } catch (e) {}
+      ws = null;
+    }
+    if (!ws) connect();
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) {
+      reviveSocket();
+      flush();
+      applyWakeLock();
+    }
+  });
+  window.addEventListener('online', reviveSocket);
+
+  // 点空白处也能聚焦输入框
+  document.querySelector('main').addEventListener('click', function (e) {
+    if (e.target === ta) return;
+    ta.focus();
+  });
+
+  // iOS 键盘弹起时把输入区滚到可见
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', function () {
+      window.scrollTo(0, 0);
+    });
+  }
+
+  updateBadge();
+  connect();
+  applyWakeLock();
+  setTimeout(function () { try { ta.focus(); } catch (e) {} }, 300);
+})();
+</script>
+</body>
+</html>
